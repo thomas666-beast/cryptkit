@@ -36,7 +36,12 @@ type Options struct {
 
 	// Rand is the entropy source. Nil => crypto/rand.Reader.
 	Rand io.Reader
-}
+
+	// KeyID, if non-empty, is stored in the envelope header so that
+	// DecryptWithKeyring can pick the right key without trial decryption.
+	// Set to "" for no key ID. Length is typically 8 or 16 bytes.
+	KeyID []byte
+	}
 
 func DefaultOptions() Options {
 	return Options{RequireCommitment: true}
@@ -108,12 +113,17 @@ func Encrypt(key, plaintext []byte, opts Options) ([]byte, error) {
 		flags |= FlagHasCommitment
 	}
 
+	if len(opts.KeyID) > 0 {
+		flags |= envelope.FlagHasKeyID
+	}
+
 	hdr := &envelope.Header{
 		Version:   envelope.Version,
 		Algorithm: alg,
 		KDF:       envelope.KDFNone,
 		Flags:     flags,
 		Nonce:     nonce,
+		KeyID:     opts.KeyID,
 	}
 	hdrBytes := hdr.Marshal()
 

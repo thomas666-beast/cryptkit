@@ -70,3 +70,20 @@ func (k *Keyring) Candidates() [][]byte {
 	}
 	return out
 }
+
+// AddWithID registers a key under name and records its KeyID.
+func (k *Keyring) AddWithID(name string, key []byte, active bool) {
+	k.Add(name, key, active)
+}
+
+// FindByID returns the key whose KeyID matches id, or nil.
+func (k *Keyring) FindByID(id string) ([]byte, bool) {
+	k.mu.RLock()
+	defer k.mu.RUnlock()
+	for _, key := range k.keys {
+		if KeyID(key) == id {
+			return key, true
+		}
+	}
+	return nil, false
+}

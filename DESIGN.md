@@ -127,3 +127,16 @@ tag is NOT part of AAD — it has its own purpose (key-commitment).
 
 All decryption paths go through envelope.ParseView, which returns the
 three regions separately. No caller should compute offsets by hand.
+
+## Key ID (flag bit 2, 0x04)
+
+When present, the header carries a 2-byte length followed by the key ID.
+Default key ID is SHA-256(key)[:8]. Key IDs are non-secret and are used
+by DecryptWithKeyring to select the right key without trial decryption.
+
+Layout addition:
+
+    [ ... existing header ... ][ nonce M ][ keyIDLen 2 ][ keyID K ]
+
+Old v1 readers ignore unknown flag bits, so files without a key ID parse
+identically.

@@ -9,7 +9,11 @@ const (
 	Magic       = "CRYPTKIT"
 	Version     = 0x01
 	MagicLen    = 8
-	FixedHdrLen = 16 // magic + ver + alg + kdf + flags + kdfParamsLen
+	FixedHdrLen = 16
+
+	FlagHasContext    uint8 = 0x01
+	FlagHasCommitment uint8 = 0x02
+	FlagHasKeyID      uint8 = 0x04
 )
 
 var (
@@ -26,11 +30,15 @@ type Header struct {
 	Flags     uint8
 	KDFParams []byte
 	Nonce     []byte
+	KeyID     []byte // nil if absent
 }
 
-// Marshal writes the header bytes that will also serve as AEAD associated data.
+// Marshal writes header bytes. Layout:
+//
+//	[ magic 8 ][ ver 1 ][ alg 1 ][ kdf 1 ][ flags 1 ][ kdfLen 4 ]
+//	[ kdfParams N ][ nonce M ][ (if flag bit 2) keyIDLen 2 || keyID K ]
 func (h *Header) Marshal() []byte {
-	out := make([]byte, 0, FixedHdrLen+len(h.KDFParams)+len(h.Nonce))
+	out := make([]byte, 0, FixedHdrLen+len(h.KDFParams)+len(h.Nonce)+2+len(h.KeyID))
 	out = append(out, Magic...)
 	out = append(out, h.Version, byte(h.Algorithm), byte(h.KDF), h.Flags)
 	var l [4]byte
@@ -38,11 +46,16 @@ func (h *Header) Marshal() []byte {
 	out = append(out, l[:]...)
 	out = append(out, h.KDFParams...)
 	out = append(out, h.Nonce...)
+	if h.Flags&FlagHasKeyID != 0 {
+		var kl [2]byte
+		binary.BigEndian.PutUint16(kl[:], uint16(len(h.KeyID)))
+		out = append(out, kl[:]...)
+		out = append(out, h.KeyID...)
+	}
 	return out
 }
 
-// ParseHeader reads a header from the front of buf, returning the header
-// and the offset where ciphertext begins.
+// ParseHeader reads a header, returning the offset where ciphertext begins.
 func ParseHeader(buf []byte) (*Header, int, error) {
 	if len(buf) < FixedHdrLen {
 		return nil, 0, ErrTruncated
@@ -75,9 +88,26 @@ func ParseHeader(buf []byte) (*Header, int, error) {
 	}
 	h.Nonce = buf[off : off+ns]
 	off += ns
+	if h.Flags&FlagHasKeyID != 0 {
+		if len(buf)-off < 2 {
+			return nil, 0, ErrTruncated
+		}
+		kl := binary.BigEndian.Uint16(buf[off : off+2])
+		off += 2
+		if len(buf)-off < int(kl) {
+			return nil, 0, ErrTruncated
+		}
+		h.KeyID = buf[off : off+int(kl)]
+		off += int(kl)
+	}
 	return h, off, nil
 }
 
-// HasContext / HasCommitment convenience.
-func (h *Header) HasContext() bool    { return h.Flags&0x01 != 0 }
-func (h *Header) HasCommitment() bool { return h.Flags&0x02 != 0 }
+// HasContext reports whether the envelope carries a structured Context.
+func (h *Header) HasContext() bool { return h.Flags&FlagHasContext != 0 }
+
+// HasCommitment reports whether the envelope carries a key-commitment tag.
+func (h *Header) HasCommitment() bool { return h.Flags&FlagHasCommitment != 0 }
+
+// HasKeyID reports whether the envelope carries a key identifier.
+func (h *Header) HasKeyID() bool { return h.Flags&FlagHasKeyID != 0 }

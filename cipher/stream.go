@@ -89,6 +89,9 @@ func EncryptStream(w io.Writer, r io.Reader, key []byte, opts StreamOptions) err
 	if opts.RequireCommitment {
 		flags |= FlagHasCommitment
 	}
+	if len(opts.KeyID) > 0 {
+    	flags |= envelope.FlagHasKeyID
+	}
 
 	hdr := &envelope.Header{
 		Version:   envelope.Version,
@@ -96,6 +99,7 @@ func EncryptStream(w io.Writer, r io.Reader, key []byte, opts StreamOptions) err
 		KDF:       envelope.KDFNone,
 		Flags:     flags,
 		Nonce:     base,
+		KeyID:     opts.KeyID,
 	}
 
 	hdrBytes, hdrAAD, err := opts.writeHeaderAndCommitment(w, key, hdr)
