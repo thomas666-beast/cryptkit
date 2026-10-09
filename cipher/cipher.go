@@ -140,51 +140,41 @@ func Encrypt(key, plaintext []byte, opts Options) ([]byte, error) {
 
 // Decrypt opens an envelope produced by Encrypt.
 func Decrypt(key, blob []byte, opts Options) ([]byte, error) {
-	hdr, hdrEnd, err := envelope.ParseHeader(blob)
+	v, err := envelope.ParseView(blob, commitLen)
 	if err != nil {
 		return nil, err
 	}
-	if opts.Nonce != nil && !bytesEqual(opts.Nonce, hdr.Nonce) {
+	if opts.Nonce != nil && !bytesEqual(opts.Nonce, v.Header.Nonce) {
 		return nil, errors.New("cryptkit: nonce override does not match header")
 	}
-	aead, err := newAEAD(key, hdr.Algorithm)
+	aead, err := newAEAD(key, v.Header.Algorithm)
 	if err != nil {
 		return nil, err
 	}
 
-	// Verify commitment BEFORE AEAD. Commitment is stored right after the
-	// header, before the ciphertext.
-	off := hdrEnd
-	if hdr.HasCommitment() {
-		if off+commitLen > len(blob) {
-			return nil, ErrDecrypt
-		}
-		want := blob[off : off+commitLen]
-		if !verifyCommitment(key, blob[:hdrEnd], want, opts.Context) {
+	if v.Commitment != nil {
+		if !verifyCommitment(key, v.HeaderRaw, v.Commitment, opts.Context) {
 			return nil, ErrCommitCheck
 		}
-		off += commitLen
 	} else if opts.RequireCommitment {
 		return nil, ErrCommitCheck
 	}
 
-	if hdr.HasContext() && !opts.hasContext() {
+	if v.Header.HasContext() && !opts.hasContext() {
 		return nil, ErrContextCheck
 	}
 
-	// AAD is built from the header bytes ONLY — the commitment tag is not
-	// part of AAD, it has its own cryptographic role.
-	aad, err := opts.buildAAD(blob[:hdrEnd])
+	aad, err := opts.buildAAD(v.HeaderRaw)
 	if err != nil {
 		return nil, err
 	}
-
-	pt, err := aead.Open(nil, hdr.Nonce, blob[off:], aad)
+	pt, err := aead.Open(nil, v.Header.Nonce, v.Ciphertext, aad)
 	if err != nil {
 		return nil, ErrDecrypt
 	}
 	return pt, nil
 }
+
 func bytesEqual(a, b []byte) bool {
 	if len(a) != len(b) {
 		return false

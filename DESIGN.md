@@ -111,3 +111,19 @@ AEADs are not key-committing. cryptkit adds an explicit commitment tag:
 Stored immediately after the header. On decrypt, recomputed from the
 caller's key and context and compared in constant time. Mismatch means
 either the key is wrong or the context differs — before AEAD ever runs.
+
+## Envelope layout (v1) — corrected
+
+    [ header ][ commitment? ][ ciphertext+tag ]
+
+- header: magic, version, alg, kdf, flags, kdfParamsLen, kdfParams, nonce
+- commitment (32 bytes): present iff flag bit 1 is set
+- ciphertext: AEAD output
+
+The AAD for AEAD is header || rawAAD || canonicalContext. The commitment
+tag is NOT part of AAD — it has its own purpose (key-commitment).
+
+## EnvelopeView
+
+All decryption paths go through envelope.ParseView, which returns the
+three regions separately. No caller should compute offsets by hand.

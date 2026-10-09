@@ -215,3 +215,45 @@ func fatal(err error) {
 
 // silence unused import
 var _ = context.Background
+
+func cmdRewrap(args []string) {
+	fs := flag.NewFlagSet("rewrap", flag.ExitOnError)
+	oldKeyPath := fs.String("old", "", "old key file")
+	newKeyPath := fs.String("new", "", "new key file")
+	in := fs.String("i", "", "input file")
+	out := fs.String("o", "", "output file")
+	purpose := fs.String("purpose", "", "context purpose")
+	subject := fs.String("subject", "", "context subject")
+	origin := fs.String("origin", "", "context origin")
+	fs.Parse(args)
+
+	oldKey := mustKey(*oldKeyPath)
+	newKey := mustKey(*newKeyPath)
+	ctx := ctxFromFlags(*purpose, *subject, *origin)
+
+	opts := cipher.FileOptions{
+		StreamOptions: cipher.StreamOptions{
+			Options: cipher.Options{
+				Context:           ctx,
+				RequireCommitment: true,
+			},
+		},
+		Overwrite: true,
+	}
+
+	// decrypt to temp, re-encrypt
+	tmp, err := os.CreateTemp("", "cryptkit-rewrap-*")
+	if err != nil {
+		fatal(err)
+	}
+	defer os.Remove(tmp.Name())
+	defer tmp.Close()
+
+	if err := cipher.DecryptFile(*in, tmp.Name(), oldKey, opts); err != nil {
+		fatal(err)
+	}
+	if err := cipher.EncryptFile(tmp.Name(), *out, newKey, opts); err != nil {
+		fatal(err)
+	}
+	fmt.Println("rewrapped:", *out)
+}

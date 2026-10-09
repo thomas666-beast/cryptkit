@@ -109,3 +109,25 @@ func verifyArgon2id(pw, encoded string) error {
 	}
 	return nil
 }
+
+// NeedsRehash reports whether a stored hash was produced with weaker
+// parameters than the current DefaultArgon2Params. Callers should rehash
+// after a successful login when this returns true.
+func NeedsRehash(encoded string) bool {
+	return NeedsRehashWith(encoded, DefaultArgon2Params())
+}
+
+// NeedsRehashWith lets the caller supply their own target parameters.
+func NeedsRehashWith(encoded string, target Argon2Params) bool {
+	parts := strings.Split(encoded, "$")
+	if len(parts) != 7 || parts[1] != "cryptkit" || parts[2] != "argon2id" {
+		// Unknown format — assume stale.
+		return true
+	}
+	var m, t uint32
+	var p uint8
+	if _, err := fmt.Sscanf(parts[4], "m=%d,t=%d,p=%d", &m, &t, &p); err != nil {
+		return true
+	}
+	return m < target.Memory || t < target.Iterations || p < target.Parallelism
+}

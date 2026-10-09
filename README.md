@@ -45,3 +45,12 @@ Every function takes an options struct. Supply `Rand`, `Algorithm`, `Nonce`,
 - **No hard-coded algorithms** — AEADs live in a registry; add your own.
 - **Pluggable entropy** — every function takes `Rand io.Reader`.
 - **Built-in password generator** — random, passphrase, PIN.
+
+## v0.4 highlights
+
+- EnvelopeView — offset arithmetic centralized in one parser
+- Fuzz tests — Decrypt never panics on arbitrary input
+- Wycheproof vectors — AEAD wiring tested against Google's adversarial suite
+- password.NeedsRehash — parameter drift detection
+- keys.Keyring — multi-key rotation with DecryptWithKeyring
+- CLI: rewrap command, context flags on enc/dec
