@@ -3,6 +3,7 @@ package envelope
 import (
 	"encoding/binary"
 	"errors"
+	"fmt"
 )
 
 const (
@@ -30,13 +31,10 @@ type Header struct {
 	Flags     uint8
 	KDFParams []byte
 	Nonce     []byte
-	KeyID     []byte // nil if absent
+	KeyID     []byte
 }
 
-// Marshal writes header bytes. Layout:
-//
-//	[ magic 8 ][ ver 1 ][ alg 1 ][ kdf 1 ][ flags 1 ][ kdfLen 4 ]
-//	[ kdfParams N ][ nonce M ][ (if flag bit 2) keyIDLen 2 || keyID K ]
+// Marshal writes header bytes.
 func (h *Header) Marshal() []byte {
 	out := make([]byte, 0, FixedHdrLen+len(h.KDFParams)+len(h.Nonce)+2+len(h.KeyID))
 	out = append(out, Magic...)
@@ -58,7 +56,7 @@ func (h *Header) Marshal() []byte {
 // ParseHeader reads a header, returning the offset where ciphertext begins.
 func ParseHeader(buf []byte) (*Header, int, error) {
 	if len(buf) < FixedHdrLen {
-		return nil, 0, ErrTruncated
+		return nil, 0, fmt.Errorf("%w: header too short (%d bytes)", ErrTruncated, len(buf))
 	}
 	if string(buf[:MagicLen]) != Magic {
 		return nil, 0, ErrInvalidMagic
@@ -75,7 +73,7 @@ func ParseHeader(buf []byte) (*Header, int, error) {
 	n := binary.BigEndian.Uint32(buf[MagicLen+4 : MagicLen+8])
 	off := FixedHdrLen
 	if uint32(len(buf)-off) < n {
-		return nil, 0, ErrTruncated
+		return nil, 0, fmt.Errorf("%w: kdf params", ErrTruncated)
 	}
 	h.KDFParams = buf[off : off+int(n)]
 	off += int(n)
@@ -84,18 +82,18 @@ func ParseHeader(buf []byte) (*Header, int, error) {
 		return nil, 0, errors.New("cryptkit: unknown algorithm")
 	}
 	if len(buf)-off < ns {
-		return nil, 0, ErrTruncated
+		return nil, 0, fmt.Errorf("%w: nonce", ErrTruncated)
 	}
 	h.Nonce = buf[off : off+ns]
 	off += ns
 	if h.Flags&FlagHasKeyID != 0 {
 		if len(buf)-off < 2 {
-			return nil, 0, ErrTruncated
+			return nil, 0, fmt.Errorf("%w: keyid length", ErrTruncated)
 		}
 		kl := binary.BigEndian.Uint16(buf[off : off+2])
 		off += 2
 		if len(buf)-off < int(kl) {
-			return nil, 0, ErrTruncated
+			return nil, 0, fmt.Errorf("%w: keyid", ErrTruncated)
 		}
 		h.KeyID = buf[off : off+int(kl)]
 		off += int(kl)

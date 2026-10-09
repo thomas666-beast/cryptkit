@@ -35,4 +35,7 @@ func chunkIndexAAD(headerAAD []byte, index uint64, final bool) []byte {
 	return out
 }
 
-var ErrTruncatedChunk = errors.New("cryptkit: truncated chunk")
+var (
+	ErrTruncatedChunk = errors.New("cryptkit: truncated chunk")
+	ErrTrailingBytes  = errors.New("cryptkit: trailing bytes after final chunk")
+)

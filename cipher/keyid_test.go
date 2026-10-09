@@ -12,7 +12,6 @@ func TestKeyIDSelection(t *testing.T) {
 	k1, _ := keys.Generate(32, nil)
 	k2, _ := keys.Generate(32, nil)
 
-	// Encrypt with k2, tagged with its KeyID.
 	ct, err := cipher.Encrypt(k2, []byte("hi"), cipher.Options{
 		KeyID: keys.KeyIDBytes(k2),
 	})
@@ -38,7 +37,6 @@ func TestKeyIDSelection(t *testing.T) {
 
 func TestKeyIDMismatchFails(t *testing.T) {
 	k1, _ := keys.Generate(32, nil)
-	// Fake KeyID that isn't in the ring.
 	ct, _ := cipher.Encrypt(k1, []byte("x"), cipher.Options{
 		KeyID: []byte{0xde, 0xad, 0xbe, 0xef, 0x00, 0x11, 0x22, 0x33},
 	})

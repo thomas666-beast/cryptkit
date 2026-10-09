@@ -28,7 +28,6 @@ func DecryptWithKeyring(ring *keys.Keyring, blob []byte, opts Options) ([]byte, 
 		}
 		return pt, key, nil
 	}
-	// Fallback: trial decryption.
 	var lastErr error
 	for _, k := range ring.Candidates() {
 		pt, err := Decrypt(k, blob, opts)
@@ -43,7 +42,6 @@ func DecryptWithKeyring(ring *keys.Keyring, blob []byte, opts Options) ([]byte, 
 	return nil, nil, lastErr
 }
 
-// hexString avoids importing encoding/hex at package top level.
 func hexString(b []byte) string {
 	const d = "0123456789abcdef"
 	out := make([]byte, len(b)*2)

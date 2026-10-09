@@ -23,3 +23,31 @@ func TestGenerateAndRoundTrip(t *testing.T) {
 		t.Fatalf("b64 round trip: %v", err)
 	}
 }
+
+func TestKeyringLifecycle(t *testing.T) {
+	r := keys.NewKeyring()
+	k1, _ := keys.Generate(32, nil)
+	k2, _ := keys.Generate(32, nil)
+	r.Add("a", k1, true)
+	r.Add("b", k2, false)
+
+	if r.Active() != "a" {
+		t.Fatalf("active: %s", r.Active())
+	}
+	if err := r.SetActive("b"); err != nil {
+		t.Fatal(err)
+	}
+	if r.Active() != "b" {
+		t.Fatalf("active: %s", r.Active())
+	}
+	if len(r.Candidates()) != 2 {
+		t.Fatalf("candidates: %d", len(r.Candidates()))
+	}
+	r.Remove("b")
+	if r.Active() != "a" {
+		t.Fatalf("after remove, active: %s", r.Active())
+	}
+	if got := r.Names(); len(got) != 1 || got[0] != "a" {
+		t.Fatalf("names: %v", got)
+	}
+}

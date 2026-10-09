@@ -2,14 +2,18 @@ package cipher
 
 import (
 	"crypto/rand"
+	"encoding/hex"
 	"errors"
+	"fmt"
 	"io"
 
+	"github.com/thomas666-beast/cryptkit/audit"
 	"github.com/thomas666-beast/cryptkit/context"
 	"github.com/thomas666-beast/cryptkit/envelope"
 )
 
 var (
+	ErrEncrypt      = errors.New("cryptkit: encryption failed")
 	ErrDecrypt      = errors.New("cryptkit: decryption failed")
 	ErrInvalidKey   = errors.New("cryptkit: invalid key length")
 	ErrUnsupported  = errors.New("cryptkit: unsupported algorithm")
@@ -20,29 +24,16 @@ var (
 // Options controls encryption and decryption behaviour.
 type Options struct {
 	Algorithm envelope.Algorithm
-
-	// Nonce, if non-empty, used verbatim.
-	Nonce []byte
-
-	// AssociatedData is authenticated but not encrypted (raw).
+	Nonce     []byte
 	AssociatedData []byte
-
-	// Context, if Purpose+Subject are set, is bound to the ciphertext
-	// via the Context-Binding Layer. Decryption requires the same Context.
-	Context context.Context
-
-	// RequireCommitment adds a key-commitment tag (recommended).
+	Context   context.Context
 	RequireCommitment bool
+	KeyID     []byte
+	Audit     *audit.Log
+	Rand      io.Reader
+}
 
-	// Rand is the entropy source. Nil => crypto/rand.Reader.
-	Rand io.Reader
-
-	// KeyID, if non-empty, is stored in the envelope header so that
-	// DecryptWithKeyring can pick the right key without trial decryption.
-	// Set to "" for no key ID. Length is typically 8 or 16 bytes.
-	KeyID []byte
-	}
-
+// DefaultOptions returns the library's recommended defaults.
 func DefaultOptions() Options {
 	return Options{RequireCommitment: true}
 }
@@ -99,20 +90,19 @@ func Encrypt(key, plaintext []byte, opts Options) ([]byte, error) {
 	if len(nonce) == 0 {
 		nonce = make([]byte, info.NonceSize)
 		if _, err := io.ReadFull(opts.rand(), nonce); err != nil {
-			return nil, err
+			return nil, fmt.Errorf("%w: nonce: %v", ErrEncrypt, err)
 		}
 	} else if len(nonce) != info.NonceSize {
-		return nil, errors.New("cryptkit: nonce length mismatch")
+		return nil, fmt.Errorf("%w: nonce length mismatch", ErrEncrypt)
 	}
 
 	var flags uint8
 	if opts.hasContext() {
-		flags |= FlagHasContext
+		flags |= envelope.FlagHasContext
 	}
 	if opts.RequireCommitment {
-		flags |= FlagHasCommitment
+		flags |= envelope.FlagHasCommitment
 	}
-
 	if len(opts.KeyID) > 0 {
 		flags |= envelope.FlagHasKeyID
 	}
@@ -131,13 +121,13 @@ func Encrypt(key, plaintext []byte, opts Options) ([]byte, error) {
 	if opts.RequireCommitment {
 		commitment, err = computeCommitment(key, hdrBytes, opts.Context)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("%w: commitment: %v", ErrEncrypt, err)
 		}
 	}
 
 	aad, err := opts.buildAAD(hdrBytes)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("%w: aad: %v", ErrEncrypt, err)
 	}
 
 	ct := aead.Seal(nil, nonce, plaintext, aad)
@@ -145,6 +135,21 @@ func Encrypt(key, plaintext []byte, opts Options) ([]byte, error) {
 	out = append(out, hdrBytes...)
 	out = append(out, commitment...)
 	out = append(out, ct...)
+
+	if opts.Audit != nil {
+		ctxHash := ""
+		if opts.hasContext() {
+			h, _ := opts.Context.Hash()
+			ctxHash = hex.EncodeToString(h[:])
+		}
+		_ = opts.Audit.Append(audit.Record{
+			Op:          audit.OpEncrypt,
+			Algorithm:   uint8(alg),
+			ContextHash: ctxHash,
+			Bytes:       int64(len(plaintext)),
+		})
+	}
+
 	return out, nil
 }
 
@@ -152,10 +157,10 @@ func Encrypt(key, plaintext []byte, opts Options) ([]byte, error) {
 func Decrypt(key, blob []byte, opts Options) ([]byte, error) {
 	v, err := envelope.ParseView(blob, commitLen)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("%w: %v", ErrDecrypt, err)
 	}
 	if opts.Nonce != nil && !bytesEqual(opts.Nonce, v.Header.Nonce) {
-		return nil, errors.New("cryptkit: nonce override does not match header")
+		return nil, fmt.Errorf("%w: nonce override does not match header", ErrDecrypt)
 	}
 	aead, err := newAEAD(key, v.Header.Algorithm)
 	if err != nil {
@@ -176,12 +181,27 @@ func Decrypt(key, blob []byte, opts Options) ([]byte, error) {
 
 	aad, err := opts.buildAAD(v.HeaderRaw)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("%w: aad: %v", ErrDecrypt, err)
 	}
 	pt, err := aead.Open(nil, v.Header.Nonce, v.Ciphertext, aad)
 	if err != nil {
 		return nil, ErrDecrypt
 	}
+
+	if opts.Audit != nil {
+		ctxHash := ""
+		if opts.hasContext() {
+			h, _ := opts.Context.Hash()
+			ctxHash = hex.EncodeToString(h[:])
+		}
+		_ = opts.Audit.Append(audit.Record{
+			Op:          audit.OpDecrypt,
+			Algorithm:   uint8(v.Header.Algorithm),
+			ContextHash: ctxHash,
+			Bytes:       int64(len(pt)),
+		})
+	}
+
 	return pt, nil
 }
 
