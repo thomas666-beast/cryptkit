@@ -34,3 +34,14 @@ hash and verify passwords; generate secure passwords and passphrases.
 
 Every function takes an options struct. Supply `Rand`, `Algorithm`, `Nonce`,
 `ChunkSize`, `NonceDeriver`, or register your own AEAD via `cipher.Register`.
+
+## Features unique to cryptkit
+
+- **Context-Binding Layer (CBL)** — every ciphertext is bound to a
+  structured, mandatory context (purpose, subject, origin, epoch). Decryption
+  with the wrong context fails, even with the right key.
+- **Key Commitment** — explicit commitment tag defeats wrong-key
+  decryption attempts before AEAD runs. Most Go crypto libraries don't.
+- **No hard-coded algorithms** — AEADs live in a registry; add your own.
+- **Pluggable entropy** — every function takes `Rand io.Reader`.
+- **Built-in password generator** — random, passphrase, PIN.

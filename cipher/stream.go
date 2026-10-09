@@ -31,6 +31,34 @@ func (o StreamOptions) deriver() NonceDeriver {
 	return DefaultNonceDeriver
 }
 
+// buildHeaderAAD is the AEAD associated data for the header, WITHOUT the
+// per-chunk index. Chunks chain the index on top of this.
+func (o StreamOptions) buildHeaderAAD(hdrBytes []byte) ([]byte, error) {
+	return o.Options.buildAAD(hdrBytes)
+}
+
+// writeHeaderAndCommitment writes headerBytes and, if the envelope flags
+// include a commitment, appends the commitment tag. Returns the header
+// bytes and the header AAD (header || raw AAD || canonical context).
+func (o StreamOptions) writeHeaderAndCommitment(w io.Writer, key []byte, hdr *envelope.Header) (hdrBytes, hdrAAD []byte, err error) {
+	hdrBytes = hdr.Marshal()
+	if _, err = w.Write(hdrBytes); err != nil {
+		return
+	}
+	if hdr.HasCommitment() {
+		var c []byte
+		c, err = computeCommitment(key, hdrBytes, o.Context)
+		if err != nil {
+			return
+		}
+		if _, err = w.Write(c); err != nil {
+			return
+		}
+	}
+	hdrAAD, err = o.buildHeaderAAD(hdrBytes)
+	return
+}
+
 // EncryptStream reads plaintext from r and writes one envelope to w.
 func EncryptStream(w io.Writer, r io.Reader, key []byte, opts StreamOptions) error {
 	alg := opts.alg()
@@ -53,17 +81,28 @@ func EncryptStream(w io.Writer, r io.Reader, key []byte, opts StreamOptions) err
 		return errors.New("cryptkit: nonce length mismatch")
 	}
 
+	// Compute envelope flags for context + commitment.
+	var flags uint8
+	if opts.hasContext() {
+		flags |= FlagHasContext
+	}
+	if opts.RequireCommitment {
+		flags |= FlagHasCommitment
+	}
+
 	hdr := &envelope.Header{
 		Version:   envelope.Version,
 		Algorithm: alg,
 		KDF:       envelope.KDFNone,
+		Flags:     flags,
 		Nonce:     base,
 	}
-	hdrBytes := hdr.Marshal()
-	if _, err := w.Write(hdrBytes); err != nil {
+
+	hdrBytes, hdrAAD, err := opts.writeHeaderAndCommitment(w, key, hdr)
+	if err != nil {
 		return err
 	}
-	hdrAAD := append(append([]byte{}, hdrBytes...), opts.AssociatedData...)
+	_ = hdrBytes
 
 	cs := opts.chunkSize()
 	deriver := opts.deriver()
@@ -112,7 +151,30 @@ func DecryptStream(w io.Writer, r io.Reader, key []byte, opts StreamOptions) err
 	if err != nil {
 		return err
 	}
-	hdrAAD := append(append([]byte{}, hdrBytes...), opts.AssociatedData...)
+
+	// Commitment verification happens BEFORE the AEAD loop so a wrong
+	// key or wrong context fails cheaply and clearly.
+	if hdr.HasCommitment() {
+		var cbuf [commitLen]byte
+		if _, err := io.ReadFull(r, cbuf[:]); err != nil {
+			return err
+		}
+		if !verifyCommitment(key, hdrBytes, cbuf[:], opts.Context) {
+			return ErrCommitCheck
+		}
+	} else if opts.RequireCommitment {
+		return ErrCommitCheck
+	}
+
+	// If the envelope claims a context, the caller must supply one.
+	if hdr.HasContext() && !opts.hasContext() {
+		return ErrContextCheck
+	}
+
+	hdrAAD, err := opts.buildHeaderAAD(hdrBytes)
+	if err != nil {
+		return err
+	}
 	deriver := opts.deriver()
 
 	cs := opts.chunkSize()
@@ -146,6 +208,7 @@ func DecryptStream(w io.Writer, r io.Reader, key []byte, opts StreamOptions) err
 	}
 }
 
+// readStreamHeader reads exactly the header bytes (no commitment, no chunks).
 func readStreamHeader(r io.Reader) ([]byte, *envelope.Header, error) {
 	head := make([]byte, envelope.FixedHdrLen)
 	if _, err := io.ReadFull(r, head); err != nil {

@@ -35,9 +35,15 @@ func TestRoundTrip(t *testing.T) {
 
 func TestTamperedCiphertextFails(t *testing.T) {
 	key := bytes.Repeat([]byte{0x42}, 32)
-	ct, _ := cipher.Encrypt(key, []byte("secret"), cipher.DefaultOptions())
+	ct, err := cipher.Encrypt(key, []byte("secret"), cipher.DefaultOptions())
+	if err != nil {
+		t.Fatalf("encrypt: %v", err)
+	}
+	if len(ct) == 0 {
+		t.Fatal("encrypt returned empty ciphertext")
+	}
 	ct[len(ct)-1] ^= 0x01
-	if _, err := cipher.Decrypt(key, ct, cipher.Options{}); err == nil {
+	if _, err := cipher.Decrypt(key, ct, cipher.Options{RequireCommitment: true}); err == nil {
 		t.Fatal("expected decrypt failure on tampered ciphertext")
 	}
 }

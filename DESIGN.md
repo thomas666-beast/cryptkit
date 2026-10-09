@@ -79,3 +79,35 @@ passgen.GeneratePIN — numeric.
 
 All accept a `Rand io.Reader`, so callers can use HSM entropy or a
 deterministic source in tests.
+
+## Context-Binding Layer (CBL) — cryptkit's signature feature
+
+Standard AEAD takes free-form Associated Data. Most libraries stop there.
+cryptkit enforces a *structured, mandatory* Context:
+
+    Purpose  — what this data is for      (mandatory)
+    Subject  — who it belongs to          (mandatory)
+    Origin   — where it was created       (optional)
+    Epoch    — when it was created        (optional)
+    Extra    — arbitrary key/value pairs  (optional)
+
+The Context is canonicalized (deterministic byte encoding), hashed, and
+included in the AEAD AAD. At decryption the caller MUST supply the same
+Context; mismatch fails even if the key is correct.
+
+This defeats:
+- Ciphertext substitution (moving Alice's blob into Bob's slot)
+- Cross-protocol replay (a token from service A replayed at service B)
+- Domain confusion (a "backup" ciphertext used as a "session token")
+- Silent downgrade (envelope claims context; caller must supply one)
+
+## Key Commitment
+
+AEADs are not key-committing. cryptkit adds an explicit commitment tag:
+
+    commit = HMAC-SHA256(HKDF(key, "cryptkit/commitment/v1"),
+                         headerBytes || SHA256(canonicalContext))
+
+Stored immediately after the header. On decrypt, recomputed from the
+caller's key and context and compared in constant time. Mismatch means
+either the key is wrong or the context differs — before AEAD ever runs.

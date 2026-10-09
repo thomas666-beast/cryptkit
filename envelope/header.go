@@ -77,3 +77,7 @@ func ParseHeader(buf []byte) (*Header, int, error) {
 	off += ns
 	return h, off, nil
 }
+
+// HasContext / HasCommitment convenience.
+func (h *Header) HasContext() bool    { return h.Flags&0x01 != 0 }
+func (h *Header) HasCommitment() bool { return h.Flags&0x02 != 0 }
