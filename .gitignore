@@ -1,0 +1,7 @@
+*.enc
+*.dec
+*.test
+coverage.out
+*.out
+.idea/
+.vscode/

@@ -1,0 +1,36 @@
+# cryptkit
+
+A general-purpose Go crypto library: encrypt/decrypt bytes, text, and files;
+hash and verify passwords; generate secure passwords and passphrases.
+
+**Learning project. Not audited. Do not use in production.**
+
+## Install
+
+    go get github.com/thomas666-beast/cryptkit
+
+## Encrypt bytes
+
+    key := must(keys.Generate(32, nil))
+    ct, _ := cipher.Encrypt(key, []byte("secret"), cipher.Options{})
+    pt, _ := cipher.Decrypt(key, ct, cipher.Options{})
+
+## Encrypt a file (streaming, low memory)
+
+    err := cipher.EncryptFile("db.sql", "db.sql.enc", key, cipher.FileOptions{})
+    err  = cipher.DecryptFile("db.sql.enc", "db.sql", key, cipher.FileOptions{})
+
+## Password hashing
+
+    hash, _ := password.HashPassword("hunter2")
+    err  := password.VerifyPassword("hunter2", hash)  // nil on success
+
+## Generate passwords
+
+    pw, _ := passgen.Generate(passgen.GenOptions{Length: 24, EnsureEachClass: true})
+    pp, _ := passgen.GeneratePassphrase(6, "-", nil, nil)
+
+## Customize everything
+
+Every function takes an options struct. Supply `Rand`, `Algorithm`, `Nonce`,
+`ChunkSize`, `NonceDeriver`, or register your own AEAD via `cipher.Register`.
